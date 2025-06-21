@@ -153,8 +153,7 @@ impl CryptoStreamer {
         };
 
         let subscribe_json = serde_json::to_string(&subscribe_msg)?;
-        // Fix: Convert String to bytes for Message::Text
-        write.send(Message::Text(subscribe_json.into())).await?;
+        write.send(Message::Text(subscribe_json)).await?;
 
         println!("✓ Subscribed to {} products", product_ids.len());
 
@@ -162,23 +161,20 @@ impl CryptoStreamer {
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
-                    // Convert bytes back to string for processing
-                    let text_str = text.to_string();
                     // Try to parse as ticker message
-                    if let Ok(ticker_msg) = serde_json::from_str::<CoinbaseTickerMessage>(&text_str) {
+                    if let Ok(ticker_msg) = serde_json::from_str::<CoinbaseTickerMessage>(&text) {
                         if ticker_msg.message_type == "ticker" {
                             let market_data = self.parse_coinbase_message(ticker_msg);
-                            //println!("📦 Parsed: {} ${:.4}", market_data.symbol, market_data.price);
                             self.broadcast_to_clients(&market_data).await;
                         }
                     } else {
                         // Handle other message types (subscriptions, heartbeat, etc.)
-                        if text_str.contains("\"type\":\"subscriptions\"") {
+                        if text.contains("\"type\":\"subscriptions\"") {
                             println!("✓ Subscription confirmed");
-                        } else if text_str.contains("\"type\":\"heartbeat\"") {
+                        } else if text.contains("\"type\":\"heartbeat\"") {
                             // Heartbeat - keep connection alive
                         } else {
-                            println!("📋 Other message: {}", text_str);
+                            println!("📋 Other message: {}", text);
                         }
                     }
                 }
@@ -336,7 +332,12 @@ impl CryptoStreamer {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let streamer = CryptoStreamer::new("127.0.0.1:8888")?;
+    // IMPORTANT: Bind to 0.0.0.0 instead of 127.0.0.1 for Docker container
+    // This allows connections from outside the container
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8888".to_string());
+    println!("Starting server on: {}", bind_addr);
+    
+    let streamer = CryptoStreamer::new(&bind_addr)?;
     streamer.run().await;
     Ok(())
 }
