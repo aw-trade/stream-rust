@@ -153,7 +153,8 @@ impl CryptoStreamer {
         };
 
         let subscribe_json = serde_json::to_string(&subscribe_msg)?;
-        write.send(Message::Text(subscribe_json)).await?;
+        // Fix: Convert String to bytes and use Message::Text or Message::Binary
+        write.send(Message::Text(subscribe_json.into())).await?;
 
         println!("✓ Subscribed to {} products", product_ids.len());
 
@@ -161,20 +162,23 @@ impl CryptoStreamer {
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
+                    // Convert bytes to string if needed
+                    let text_str = text.to_string();
+                    
                     // Try to parse as ticker message
-                    if let Ok(ticker_msg) = serde_json::from_str::<CoinbaseTickerMessage>(&text) {
+                    if let Ok(ticker_msg) = serde_json::from_str::<CoinbaseTickerMessage>(&text_str) {
                         if ticker_msg.message_type == "ticker" {
                             let market_data = self.parse_coinbase_message(ticker_msg);
                             self.broadcast_to_clients(&market_data).await;
                         }
                     } else {
                         // Handle other message types (subscriptions, heartbeat, etc.)
-                        if text.contains("\"type\":\"subscriptions\"") {
+                        if text_str.contains("\"type\":\"subscriptions\"") {
                             println!("✓ Subscription confirmed");
-                        } else if text.contains("\"type\":\"heartbeat\"") {
+                        } else if text_str.contains("\"type\":\"heartbeat\"") {
                             // Heartbeat - keep connection alive
                         } else {
-                            println!("📋 Other message: {}", text);
+                            println!("📋 Other message: {}", text_str);
                         }
                     }
                 }
